@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>可嵌入式學校教室預約系統週曆</title>
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 隱藏滾動條，讓嵌入在 iframe 時更像原生組件 */
+        body { margin: 0; padding: 4px; background-color: #f8fafc; }
+        .fc-v-event { border-radius: 4px; padding: 2px 4px; border: none; }
+    </style>
+</head>
+<body class="font-sans text-slate-800">
+
+    <div class="max-w-7xl mx-auto bg-white p-4 rounded-xl shadow-md border border-slate-200">
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-200 pb-3 mb-4 gap-2">
+            <div>
+                <h1 class="text-xl font-bold text-slate-900">工程館 TR-512 教室使用狀態</h1>
+                <p class="text-xs text-slate-500">提示：藍色為正課、綠色為已核准、橘色為審核中、灰色為不開放。教職員登入後可拖曳空白處預約。</p>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="text-sm text-slate-600">目前模擬身份：</span>
+                <select id="roleSelector" class="bg-slate-100 border border-slate-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="guest">一般訪客 (免登入唯讀)</option>
+                    <option value="teacher" selected>已登入教職員 (可拖曳預約)</option>
+                </select>
+            </div>
+        </div>
+
+        <div id="calendar"></div>
+    </div>
+
+    <div id="bookingModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm hidden flex items-center justify-center z-50">
+        <div class="bg-white p-6 rounded-lg shadow-xl w-full max-w-md border border-slate-300">
+            <h3 class="text-lg font-bold text-slate-900 mb-4">申請教室借用</h3>
+            <div class="space-y-3">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700">借用事由 / 課程名稱</label>
+                    <input type="text" id="eventTitle" placeholder="例如：專題進度研討會" class="w-full mt-1 border border-slate-300 rounded p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700">開始時間</label>
+                        <input type="text" id="eventStart" readonly class="w-full mt-1 bg-slate-50 border border-slate-200 rounded p-2 text-sm text-slate-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700">結束時間</label>
+                        <input type="text" id="eventEnd" readonly class="w-full mt-1 bg-slate-50 border border-slate-200 rounded p-2 text-sm text-slate-500">
+                    </div>
+                </div>
+                <div class="flex items-center mt-2">
+                    <input type="checkbox" id="isRecurring" class="h-4 w-4 text-blue-600 border-slate-300 rounded">
+                    <label for="isRecurring" class="ml-2 text-sm text-slate-700">每週此時間重複預約（至學期末）</label>
+                </div>
+            </div>
+            <div class="mt-5 flex justify-end gap-2">
+                <button onclick="closeModal()" class="px-4 py-2 bg-slate-100 text-slate-700 rounded text-sm hover:bg-slate-200 transition">取消</button>
+                <button onclick="submitBooking()" class="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition">送出申請</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let calendar;
+        let selectedTimeSlot = null;
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const calendarEl = document.getElementById('calendar');
+            const roleSelector = document.getElementById('roleSelector');
+
+            calendar = new FullCalendar.Calendar(calendarEl, {
+                initialView: 'timeGridWeek', // 預設週日曆
+                locale: 'zh-tw',             // 繁體中文
+                firstDay: 1,                 // 週一開始
+                headerToolbar: {
+                    left: 'prev,next today',
+                    center: 'title',
+                    right: 'timeGridWeek,timeGridDay'
+                },
+                // 分鐘級刻度核心設定
+                slotDuration: '00:30:00',     // 視覺格子每 30 分鐘一格
+                snapDuration: '00:05:00',     // 拖曳選取時，磁吸精確到每 5 分鐘
+                slotLabelFormat: {
+                    hour: '2-digit', minute: '2-digit', hour12: false
+                },
+                slotMinTime: '08:00:00',      // 學校開放最早時間
+                slotMaxTime: '22:00:00',      // 學校開放最晚時間
+                allDaySlot: false,            // 隱藏全天欄位
+                
+                // 權限聯動：依據下拉選單決定能否選取
+                selectable: roleSelector.value === 'teacher', 
+                selectMirror: true,
+
+                // 點擊與拖曳空白處觸發預約
+                select: function(selectionInfo) {
+                    selectedTimeSlot = selectionInfo;
+                    document.getElementById('eventStart').value = formatTime(selectionInfo.start);
+                    document.getElementById('eventEnd').value = formatTime(selectionInfo.end);
+                    document.getElementById('bookingModal').classList.remove('hidden');
+                },
+
+                // 點擊已有事件觀看事由
+                eventClick: function(info) {
+                    alert('【' + info.event.title + '】\n時間：' + formatTime(info.event.start) + ' ~ ' + formatTime(info.event.end));
+                },
+
+                // 模擬已存在資料庫的資料
+                events: [
+                    { title: '正課：高等演算法 (資工特開)', start: '2026-05-26T09:00:00', end: '2026-05-26T12:00:00', backgroundColor: '#2563eb' },
+                    { title: '已核准：人工智慧實驗室討論', start: '2026-05-27T14:15:00', end: '2026-05-27T16:45:00', backgroundColor: '#16a34a' },
+                    { title: '審核中：教務處跨領域會議', start: '2026-05-28T10:00:00', end: '2026-05-28T11:30:00', backgroundColor: '#ea580c' },
+                    { title: '不開放：全校期末大會考管制', start: '2026-05-29T08:00:00', end: '2026-05-29T18:00:00', backgroundColor: '#64748b' }
+                ]
+            });
+
+            calendar.render();
+
+            // 監聽身份切換
+            roleSelector.addEventListener('change', function() {
+                calendar.setOption('selectable', this.value === 'teacher');
+            });
+        });
+
+        function closeModal() {
+            document.getElementById('bookingModal').classList.add('hidden');
+            document.getElementById('eventTitle').value = '';
+            calendar.unselect();
+        }
+
+        function submitBooking() {
+            const title = document.getElementById('eventTitle').value;
+            if (!title) { alert('請輸入借用事由！'); return; }
+
+            // 前端立即渲染模擬新增（狀態為審核中，橘色）
+            calendar.addEvent({
+                title: '【審核中】' + title,
+                start: selectedTimeSlot.startStr,
+                end: selectedTimeSlot.endStr,
+                backgroundColor: '#ea580c'
+            });
+            
+            alert('申請成功！已送出至後端執行時間衝突檢查並等待管理員審核。');
+            closeModal();
+        }
+
+        function formatTime(date) {
+            return date.toLocaleString('zh-TW', { hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+        }
+    </script>
+</body>
+</html>
